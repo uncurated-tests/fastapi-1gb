@@ -21,6 +21,10 @@ import base64
 
 from scipy import stats, fft
 from scipy.interpolate import interp1d
+from sklearn.linear_model import LinearRegression
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+import sympy
 import networkx as nx
 
 from jinja2 import Template
@@ -450,12 +454,122 @@ def scipy_interpolate_endpoint(n: int = Query(10, ge=3, le=50)):
     }
 
 
+@app.get("/sklearn/regression")
+def sklearn_regression(
+    n: int = Query(100, ge=10, le=10000), noise: float = Query(1.0, ge=0)
+):
+    """Fit a linear regression on random data."""
+    X = np.random.rand(n, 1) * 10
+    y = 3.5 * X.flatten() + 7.2 + np.random.randn(n) * noise
+
+    model = LinearRegression()
+    model.fit(X, y)
+
+    y_pred = model.predict(X)
+    r2 = model.score(X, y)
+    residuals = y - y_pred
+
+    return {
+        "n_samples": n,
+        "noise": noise,
+        "coefficient": float(model.coef_[0]),
+        "intercept": float(model.intercept_),
+        "r_squared": float(r2),
+        "residual_mean": float(np.mean(residuals)),
+        "residual_std": float(np.std(residuals)),
+        "true_coefficient": 3.5,
+        "true_intercept": 7.2,
+    }
+
+
+@app.get("/sklearn/cluster")
+def sklearn_cluster(
+    n: int = Query(200, ge=20, le=5000),
+    k: int = Query(3, ge=2, le=10),
+):
+    """Generate random 2D data and cluster it with KMeans."""
+    centers = np.random.rand(k, 2) * 20 - 10
+    X = np.vstack([center + np.random.randn(n // k, 2) * 1.5 for center in centers])
+
+    kmeans = KMeans(n_clusters=k, n_init=10, random_state=42)
+    kmeans.fit(X)
+
+    return {
+        "n_samples": len(X),
+        "k_clusters": k,
+        "inertia": float(kmeans.inertia_),
+        "cluster_centers": kmeans.cluster_centers_.tolist(),
+        "cluster_sizes": [int((kmeans.labels_ == i).sum()) for i in range(k)],
+        "iterations": int(kmeans.n_iter_),
+    }
+
+
+@app.get("/sklearn/pca")
+def sklearn_pca(
+    n: int = Query(100, ge=20, le=5000),
+    dims: int = Query(10, ge=3, le=50),
+    components: int = Query(2, ge=1, le=10),
+):
+    """Run PCA on random high-dimensional data."""
+    X = np.random.rand(n, dims)
+    X[:, 0] += np.random.randn(n) * 5
+    X[:, 1] += X[:, 0] * 0.8
+
+    pca = PCA(n_components=min(components, dims))
+    X_transformed = pca.fit_transform(X)
+
+    return {
+        "n_samples": n,
+        "original_dims": dims,
+        "n_components": pca.n_components_,
+        "explained_variance_ratio": pca.explained_variance_ratio_.tolist(),
+        "cumulative_variance": float(np.sum(pca.explained_variance_ratio_)),
+        "singular_values": pca.singular_values_.tolist(),
+        "transformed_shape": list(X_transformed.shape),
+    }
+
+
+@app.get("/sympy/factorize")
+def sympy_factorize(n: int = Query(360, ge=2, le=1_000_000)):
+    """Factorize an integer using SymPy."""
+    factors = sympy.factorint(n)
+    return {
+        "number": n,
+        "factors": {str(k): v for k, v in factors.items()},
+        "is_prime": sympy.isprime(n),
+        "next_prime": int(sympy.nextprime(n)),
+        "totient": int(sympy.totient(n)),
+        "divisor_count": int(sympy.divisor_count(n)),
+    }
+
+
+@app.get("/sympy/solve")
+def sympy_solve(expr: str = Query("x**2 - 5*x + 6")):
+    """Solve a symbolic equation using SymPy."""
+    x = sympy.Symbol("x")
+    try:
+        parsed = sympy.sympify(expr)
+        solutions = sympy.solve(parsed, x)
+        derivative = sympy.diff(parsed, x)
+        integral = sympy.integrate(parsed, x)
+        return {
+            "expression": str(parsed),
+            "solutions": [str(s) for s in solutions],
+            "derivative": str(derivative),
+            "integral": str(integral),
+            "simplified": str(sympy.simplify(parsed)),
+        }
+    except Exception as e:
+        return {"error": str(e), "expression": expr}
+
+
 @app.get("/health")
 def health():
     """Health check with dependency versions."""
     import cryptography
     import lxml
     import scipy
+    import sklearn
 
     return {
         "status": "ok",
@@ -463,6 +577,8 @@ def health():
             "numpy": np.__version__,
             "pandas": pd.__version__,
             "scipy": scipy.__version__,
+            "scikit-learn": sklearn.__version__,
+            "sympy": sympy.__version__,
             "networkx": nx.__version__,
             "Pillow": Image.__version__,
             "matplotlib": matplotlib.__version__,

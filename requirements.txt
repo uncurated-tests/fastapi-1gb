@@ -29,3 +29,5 @@ regex
 chardet
 xmltodict
 scipy
+scikit-learn
+sympy
