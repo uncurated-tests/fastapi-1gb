@@ -163,4 +163,6 @@ ortools
 jax
 jaxlib
 llvmlite
+nvidia-cudnn-cu12
+nvidia-cublas-cu12
 
