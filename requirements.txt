@@ -117,4 +117,8 @@ statsmodels
 pyarrow
 seaborn
 sqlalchemy
+xgboost
+lightgbm
+scikit-image
+opencv-python-headless
 
