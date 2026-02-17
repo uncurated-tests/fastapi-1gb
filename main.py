@@ -1,5 +1,4 @@
 import io
-import base64
 from typing import Optional
 
 from fastapi import FastAPI, Query
@@ -7,9 +6,7 @@ from fastapi.responses import Response
 
 import numpy as np
 import pandas as pd
-from scipy import stats
-from PIL import Image, ImageDraw
-from sklearn.linear_model import LinearRegression
+from PIL import Image, ImageDraw, ImageFilter
 import matplotlib
 
 matplotlib.use("Agg")
@@ -39,6 +36,23 @@ def numpy_random_matrix(
     }
 
 
+@app.get("/numpy/linalg")
+def numpy_linalg(size: int = Query(4, ge=2, le=10)):
+    """Generate a random square matrix and compute eigenvalues and determinant."""
+    matrix = np.random.rand(size, size)
+    eigenvalues = np.linalg.eigvals(matrix)
+    det = np.linalg.det(matrix)
+    inv = np.linalg.inv(matrix)
+    return {
+        "size": size,
+        "determinant": float(det),
+        "eigenvalues_real": [float(e.real) for e in eigenvalues],
+        "eigenvalues_imag": [float(e.imag) for e in eigenvalues],
+        "inverse_trace": float(np.trace(inv)),
+        "matrix_rank": int(np.linalg.matrix_rank(matrix)),
+    }
+
+
 @app.get("/pandas/summary")
 def pandas_summary(n: int = Query(50, ge=1, le=1000)):
     """Generate a random DataFrame and return summary statistics."""
@@ -60,31 +74,30 @@ def pandas_summary(n: int = Query(50, ge=1, le=1000)):
     }
 
 
-@app.get("/scipy/distribution")
-def scipy_distribution(
-    dist: str = Query("norm", enum=["norm", "uniform", "expon"]),
-    n: int = Query(1000, ge=10, le=10000),
-):
-    """Generate samples from a distribution and run normality test."""
-    if dist == "norm":
-        samples = stats.norm.rvs(loc=0, scale=1, size=n)
-    elif dist == "uniform":
-        samples = stats.uniform.rvs(loc=0, scale=10, size=n)
-    else:
-        samples = stats.expon.rvs(scale=2, size=n)
-
-    shapiro_stat, shapiro_p = stats.shapiro(samples[: min(n, 5000)])
-    ks_stat, ks_p = stats.kstest(samples, "norm")
-
+@app.get("/pandas/timeseries")
+def pandas_timeseries(days: int = Query(30, ge=7, le=365)):
+    """Generate a random timeseries and return rolling statistics."""
+    dates = pd.date_range(start="2025-01-01", periods=days, freq="D")
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "value": np.cumsum(np.random.randn(days)) + 100,
+            "volume": np.random.randint(1000, 50000, days),
+        }
+    )
+    df["rolling_mean_7d"] = df["value"].rolling(7).mean()
+    df["rolling_std_7d"] = df["value"].rolling(7).std()
+    df["pct_change"] = df["value"].pct_change()
     return {
-        "distribution": dist,
-        "n_samples": n,
-        "mean": float(np.mean(samples)),
-        "std": float(np.std(samples)),
-        "skew": float(stats.skew(samples)),
-        "kurtosis": float(stats.kurtosis(samples)),
-        "shapiro_test": {"statistic": float(shapiro_stat), "p_value": float(shapiro_p)},
-        "ks_test": {"statistic": float(ks_stat), "p_value": float(ks_p)},
+        "days": days,
+        "start_value": float(df["value"].iloc[0]),
+        "end_value": float(df["value"].iloc[-1]),
+        "total_return_pct": float(
+            (df["value"].iloc[-1] / df["value"].iloc[0] - 1) * 100
+        ),
+        "max_drawdown": float(df["value"].min() - df["value"].max()),
+        "avg_daily_volume": float(df["volume"].mean()),
+        "data": df.tail(10).to_dict(orient="records"),
     }
 
 
@@ -109,32 +122,21 @@ def pillow_image(
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
-@app.get("/sklearn/regression")
-def sklearn_regression(
-    n: int = Query(100, ge=10, le=10000), noise: float = Query(1.0, ge=0)
+@app.get("/pillow/blur")
+def pillow_blur(
+    width: int = Query(256, ge=16, le=512),
+    height: int = Query(256, ge=16, le=512),
+    radius: int = Query(5, ge=1, le=20),
 ):
-    """Fit a linear regression on random data."""
-    X = np.random.rand(n, 1) * 10
-    y = 3.5 * X.flatten() + 7.2 + np.random.randn(n) * noise
+    """Generate a noisy image and apply Gaussian blur."""
+    noise = np.random.randint(0, 256, (height, width, 3), dtype=np.uint8)
+    img = Image.fromarray(noise)
+    blurred = img.filter(ImageFilter.GaussianBlur(radius=radius))
 
-    model = LinearRegression()
-    model.fit(X, y)
-
-    y_pred = model.predict(X)
-    r2 = model.score(X, y)
-    residuals = y - y_pred
-
-    return {
-        "n_samples": n,
-        "noise": noise,
-        "coefficient": float(model.coef_[0]),
-        "intercept": float(model.intercept_),
-        "r_squared": float(r2),
-        "residual_mean": float(np.mean(residuals)),
-        "residual_std": float(np.std(residuals)),
-        "true_coefficient": 3.5,
-        "true_intercept": 7.2,
-    }
+    buf = io.BytesIO()
+    blurred.save(buf, format="PNG")
+    buf.seek(0)
+    return Response(content=buf.getvalue(), media_type="image/png")
 
 
 @app.get("/matplotlib/chart")
@@ -170,6 +172,32 @@ def matplotlib_chart(
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
+@app.get("/matplotlib/histogram")
+def matplotlib_histogram(
+    n: int = Query(1000, ge=100, le=10000),
+    bins: int = Query(30, ge=5, le=100),
+):
+    """Generate a histogram of normally distributed data."""
+    data = np.random.randn(n)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.hist(data, bins=bins, edgecolor="black", alpha=0.7, color="#4CAF50")
+    ax.set_title(f"Normal Distribution (n={n})")
+    ax.set_xlabel("Value")
+    ax.set_ylabel("Frequency")
+    ax.axvline(
+        np.mean(data), color="red", linestyle="--", label=f"Mean: {np.mean(data):.2f}"
+    )
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=100)
+    plt.close(fig)
+    buf.seek(0)
+    return Response(content=buf.getvalue(), media_type="image/png")
+
+
 @app.get("/health")
 def health():
     """Health check with dependency versions."""
@@ -178,11 +206,7 @@ def health():
         "dependencies": {
             "numpy": np.__version__,
             "pandas": pd.__version__,
-            "scipy": stats.scipy.__version__
-            if hasattr(stats, "scipy")
-            else "installed",
             "Pillow": Image.__version__,
-            "sklearn": "installed",
             "matplotlib": matplotlib.__version__,
         },
     }

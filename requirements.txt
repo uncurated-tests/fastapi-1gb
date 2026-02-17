@@ -2,7 +2,5 @@ fastapi
 uvicorn
 numpy
 pandas
-scipy
 Pillow
 matplotlib
-scikit-learn
