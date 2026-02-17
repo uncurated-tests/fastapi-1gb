@@ -288,7 +288,10 @@ def healthcheck():
     try:
         import litellm
 
-        results["litellm"] = {"status": "ok", "version": litellm.__version__}
+        version = getattr(
+            litellm, "__version__", getattr(litellm, "version", "unknown")
+        )
+        results["litellm"] = {"status": "ok", "version": str(version)}
     except Exception as e:
         results["litellm"] = {"status": "error", "error": str(e)}
 
