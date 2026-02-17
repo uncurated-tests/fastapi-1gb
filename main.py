@@ -563,60 +563,24 @@ def sympy_solve(expr: str = Query("x**2 - 5*x + 6")):
         return {"error": str(e), "expression": expr}
 
 
-@app.get("/xgboost/classify")
-def xgboost_classify(
-    n: int = Query(500, ge=50, le=10000),
-    n_features: int = Query(10, ge=2, le=50),
-    n_classes: int = Query(3, ge=2, le=5),
+@app.get("/image/edge-detect")
+def image_edge_detect(
+    width: int = Query(128, ge=32, le=512),
+    height: int = Query(128, ge=32, le=512),
+    sigma: float = Query(1.0, ge=0.1, le=5.0),
 ):
-    """Train an XGBoost classifier on random data and return metrics."""
-    import xgboost as xgb
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import accuracy_score, f1_score
+    """Generate a random image and apply Canny edge detection using scikit-image."""
+    from skimage import feature, filters
 
-    X = np.random.randn(n, n_features)
-    y = np.random.randint(0, n_classes, n)
+    noise = np.random.rand(height, width)
+    smoothed = filters.gaussian(noise, sigma=sigma)
+    edges = feature.canny(smoothed, sigma=sigma)
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
-
-    model = xgb.XGBClassifier(
-        n_estimators=50,
-        max_depth=4,
-        learning_rate=0.1,
-        use_label_encoder=False,
-        eval_metric="mlogloss",
-        verbosity=0,
-    )
-    model.fit(X_train, y_train)
-
-    y_pred = model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred, average="weighted")
-
-    feature_importance = dict(
-        sorted(
-            zip(
-                [f"f{i}" for i in range(n_features)],
-                model.feature_importances_.tolist(),
-            ),
-            key=lambda x: x[1],
-            reverse=True,
-        )[:5]
-    )
-
-    return {
-        "n_samples": n,
-        "n_features": n_features,
-        "n_classes": n_classes,
-        "train_size": len(X_train),
-        "test_size": len(X_test),
-        "accuracy": float(accuracy),
-        "f1_weighted": float(f1),
-        "top_5_features": feature_importance,
-        "n_estimators": 50,
-    }
+    img = Image.fromarray((edges * 255).astype(np.uint8), mode="L")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return Response(content=buf.getvalue(), media_type="image/png")
 
 
 @app.get("/health")
@@ -626,7 +590,7 @@ def health():
     import lxml
     import scipy
     import sklearn
-    import xgboost
+    import skimage
 
     return {
         "status": "ok",
@@ -635,7 +599,7 @@ def health():
             "pandas": pd.__version__,
             "scipy": scipy.__version__,
             "scikit-learn": sklearn.__version__,
-            "xgboost": xgboost.__version__,
+            "scikit-image": skimage.__version__,
             "sympy": sympy.__version__,
             "networkx": nx.__version__,
             "Pillow": Image.__version__,
