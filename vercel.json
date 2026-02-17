@@ -3,9 +3,17 @@
     {
       "src": "main.py",
       "use": "@vercel/python"
+    },
+    {
+      "src": "api/analytics.py",
+      "use": "@vercel/python"
     }
   ],
   "routes": [
+    {
+      "src": "/analytics(.*)",
+      "dest": "api/analytics.py"
+    },
     {
       "src": "/(.*)",
       "dest": "main.py"
