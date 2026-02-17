@@ -160,4 +160,6 @@ cffi
 pendulum
 arrow
 ortools
+jax
+jaxlib
 
