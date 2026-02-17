@@ -142,4 +142,9 @@ alembic
 celery
 pyproj
 tensorflow-cpu
+transformers
+datasets
+accelerate
+sentencepiece
+protobuf
 
