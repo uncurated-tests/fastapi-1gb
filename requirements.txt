@@ -166,4 +166,5 @@ llvmlite
 google-cloud-bigquery
 google-cloud-storage
 google-cloud-aiplatform
+triton
 
