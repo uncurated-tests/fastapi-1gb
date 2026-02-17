@@ -141,4 +141,5 @@ fastparquet
 alembic
 celery
 pyproj
+torch
 
