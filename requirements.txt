@@ -46,4 +46,7 @@ spacy
 catboost
 pillow-heif
 pyarrow
+imageio
+pywavelets
+tables
 
