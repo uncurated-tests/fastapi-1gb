@@ -1,17 +1,26 @@
 import io
+import hashlib
+import secrets
 from typing import Optional
 
 from fastapi import FastAPI, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, HTMLResponse
 
 import numpy as np
 import pandas as pd
-from scipy import stats, signal, fft
 from PIL import Image, ImageDraw, ImageFilter
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+import base64
+
+from jinja2 import Template
+from lxml import etree
 
 app = FastAPI(title="Heavy FastAPI App", version="1.0.0")
 
@@ -199,98 +208,126 @@ def matplotlib_histogram(
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
-@app.get("/scipy/distribution")
-def scipy_distribution(
-    dist: str = Query("norm", enum=["norm", "uniform", "expon"]),
-    n: int = Query(1000, ge=10, le=10000),
-):
-    """Generate samples from a distribution and run normality test."""
-    if dist == "norm":
-        samples = stats.norm.rvs(loc=0, scale=1, size=n)
-    elif dist == "uniform":
-        samples = stats.uniform.rvs(loc=0, scale=10, size=n)
-    else:
-        samples = stats.expon.rvs(scale=2, size=n)
-
-    shapiro_stat, shapiro_p = stats.shapiro(samples[: min(n, 5000)])
-    ks_stat, ks_p = stats.kstest(samples, "norm")
-
+@app.get("/crypto/encrypt")
+def crypto_encrypt(message: str = Query("Hello, World!", max_length=1000)):
+    """Encrypt a message using Fernet symmetric encryption."""
+    key = Fernet.generate_key()
+    f = Fernet(key)
+    encrypted = f.encrypt(message.encode())
+    decrypted = f.decrypt(encrypted).decode()
     return {
-        "distribution": dist,
-        "n_samples": n,
-        "mean": float(np.mean(samples)),
-        "std": float(np.std(samples)),
-        "skew": float(stats.skew(samples)),
-        "kurtosis": float(stats.kurtosis(samples)),
-        "shapiro_test": {"statistic": float(shapiro_stat), "p_value": float(shapiro_p)},
-        "ks_test": {"statistic": float(ks_stat), "p_value": float(ks_p)},
+        "original": message,
+        "key": key.decode(),
+        "encrypted": encrypted.decode(),
+        "decrypted": decrypted,
+        "verified": decrypted == message,
     }
 
 
-@app.get("/scipy/fft")
-def scipy_fft_endpoint(
-    n: int = Query(256, ge=16, le=4096),
-    freq: float = Query(10.0, ge=1, le=100),
-):
-    """Generate a signal and compute its FFT."""
-    t = np.linspace(0, 1, n, endpoint=False)
-    sig = np.sin(2 * np.pi * freq * t) + 0.5 * np.sin(2 * np.pi * freq * 2 * t)
-    sig += np.random.randn(n) * 0.3
-
-    fft_vals = fft.fft(sig)
-    freqs = fft.fftfreq(n, d=1.0 / n)
-    magnitudes = np.abs(fft_vals)[: n // 2]
-    freq_axis = freqs[: n // 2]
-
-    peak_idx = np.argmax(magnitudes[1:]) + 1
+@app.get("/crypto/hash")
+def crypto_hash(message: str = Query("Hello, World!", max_length=1000)):
+    """Hash a message with multiple algorithms."""
+    msg_bytes = message.encode()
     return {
-        "n_samples": n,
-        "input_freq": freq,
-        "detected_peak_freq": float(freq_axis[peak_idx]),
-        "peak_magnitude": float(magnitudes[peak_idx]),
-        "top_5_freqs": [float(f) for f in freq_axis[np.argsort(magnitudes)[-5:][::-1]]],
-        "top_5_magnitudes": [float(m) for m in np.sort(magnitudes)[-5:][::-1]],
+        "original": message,
+        "md5": hashlib.md5(msg_bytes).hexdigest(),
+        "sha256": hashlib.sha256(msg_bytes).hexdigest(),
+        "sha512": hashlib.sha512(msg_bytes).hexdigest(),
+        "blake2b": hashlib.blake2b(msg_bytes).hexdigest(),
     }
 
 
-@app.get("/scipy/interpolate")
-def scipy_interpolate(n: int = Query(10, ge=3, le=50)):
-    """Generate random points and interpolate between them."""
-    from scipy.interpolate import interp1d
+@app.get("/crypto/password-derive")
+def crypto_password_derive(password: str = Query("mysecretpassword", max_length=200)):
+    """Derive a key from a password using PBKDF2."""
+    salt = secrets.token_bytes(16)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100_000,
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
+    return {
+        "password_length": len(password),
+        "salt_hex": salt.hex(),
+        "derived_key": key.decode(),
+        "algorithm": "PBKDF2-SHA256",
+        "iterations": 100_000,
+    }
 
-    x = np.sort(np.random.rand(n)) * 10
-    y = np.sin(x) + np.random.randn(n) * 0.2
 
-    f_linear = interp1d(x, y, kind="linear")
-    f_cubic = interp1d(x, y, kind="cubic")
+@app.get("/template/render", response_class=HTMLResponse)
+def template_render(
+    name: str = Query("World"),
+    items: int = Query(5, ge=1, le=20),
+):
+    """Render an HTML template using Jinja2."""
+    tmpl = Template(
+        """
+    <!DOCTYPE html>
+    <html>
+    <head><title>Hello {{ name }}</title></head>
+    <body>
+        <h1>Hello, {{ name }}!</h1>
+        <p>Here are {{ items|length }} random items:</p>
+        <ul>
+        {% for item in items %}
+            <li>Item #{{ loop.index }}: {{ item }}</li>
+        {% endfor %}
+        </ul>
+        <footer>Generated by FastAPI + Jinja2</footer>
+    </body>
+    </html>
+    """
+    )
+    random_items = [f"Value-{secrets.token_hex(4)}" for _ in range(items)]
+    html = tmpl.render(name=name, items=random_items)
+    return HTMLResponse(content=html)
 
-    x_dense = np.linspace(x[0], x[-1], 100)
-    y_linear = f_linear(x_dense)
-    y_cubic = f_cubic(x_dense)
+
+@app.get("/xml/generate")
+def xml_generate(elements: int = Query(5, ge=1, le=50)):
+    """Generate a random XML document and parse it back."""
+    root = etree.Element("catalog")
+    for i in range(elements):
+        item = etree.SubElement(root, "item", id=str(i + 1))
+        name = etree.SubElement(item, "name")
+        name.text = f"Product-{secrets.token_hex(3)}"
+        price = etree.SubElement(item, "price")
+        price.text = f"{np.random.uniform(5, 500):.2f}"
+        rating = etree.SubElement(item, "rating")
+        rating.text = f"{np.random.uniform(1, 5):.1f}"
+
+    xml_bytes = etree.tostring(
+        root, pretty_print=True, xml_declaration=True, encoding="UTF-8"
+    )
+
+    parsed = etree.fromstring(xml_bytes)
+    item_count = len(parsed.findall(".//item"))
 
     return {
-        "n_points": n,
-        "original_x": x.tolist(),
-        "original_y": y.tolist(),
-        "interpolated_points": 100,
-        "linear_range": {"min": float(y_linear.min()), "max": float(y_linear.max())},
-        "cubic_range": {"min": float(y_cubic.min()), "max": float(y_cubic.max())},
-        "max_linear_cubic_diff": float(np.max(np.abs(y_linear - y_cubic))),
+        "elements": elements,
+        "xml": xml_bytes.decode(),
+        "parsed_item_count": item_count,
+        "xml_size_bytes": len(xml_bytes),
     }
 
 
 @app.get("/health")
 def health():
     """Health check with dependency versions."""
-    import scipy
+    import cryptography
+    import lxml
 
     return {
         "status": "ok",
         "dependencies": {
             "numpy": np.__version__,
             "pandas": pd.__version__,
-            "scipy": scipy.__version__,
             "Pillow": Image.__version__,
             "matplotlib": matplotlib.__version__,
+            "cryptography": cryptography.__version__,
+            "lxml": lxml.__version__,
         },
     }

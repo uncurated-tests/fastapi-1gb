@@ -4,4 +4,9 @@ numpy
 pandas
 Pillow
 matplotlib
-scipy
+cryptography
+httpx
+pyyaml
+jinja2
+sqlalchemy
+lxml
