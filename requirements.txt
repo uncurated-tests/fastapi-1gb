@@ -44,4 +44,6 @@ lightgbm
 nltk
 spacy
 catboost
+pillow-heif
+pyarrow
 
