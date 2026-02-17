@@ -131,3 +131,13 @@ nltk
 geopandas
 fiona
 rasterio
+plotly
+bokeh
+seaborn
+dask
+xarray
+zarr
+fastparquet
+sqlalchemy
+alembic
+celery
