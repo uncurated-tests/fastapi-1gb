@@ -121,4 +121,24 @@ xgboost
 lightgbm
 scikit-image
 opencv-python-headless
+catboost
+numba
+spacy
+nltk
+geopandas
+fiona
+rasterio
+pillow-heif
+imageio
+pywavelets
+tables
+plotly
+bokeh
+dask
+xarray
+zarr
+fastparquet
+alembic
+celery
+pyproj
 
