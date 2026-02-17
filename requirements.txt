@@ -163,5 +163,7 @@ ortools
 jax
 jaxlib
 llvmlite
-nvidia-cublas-cu12
+google-cloud-bigquery
+google-cloud-storage
+google-cloud-aiplatform
 
