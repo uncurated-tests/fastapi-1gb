@@ -121,3 +121,13 @@ pyproj
 h5py
 statsmodels
 lightgbm
+pillow-heif
+pyarrow
+imageio
+pywavelets
+tables
+spacy
+nltk
+geopandas
+fiona
+rasterio
