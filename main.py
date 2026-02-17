@@ -19,7 +19,6 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
 
-import sympy
 import networkx as nx
 
 from jinja2 import Template
@@ -260,40 +259,6 @@ def crypto_password_derive(password: str = Query("mysecretpassword", max_length=
     }
 
 
-@app.get("/sympy/factorize")
-def sympy_factorize(n: int = Query(360, ge=2, le=1_000_000)):
-    """Factorize an integer using SymPy."""
-    factors = sympy.factorint(n)
-    return {
-        "number": n,
-        "factors": {str(k): v for k, v in factors.items()},
-        "is_prime": sympy.isprime(n),
-        "next_prime": int(sympy.nextprime(n)),
-        "totient": int(sympy.totient(n)),
-        "divisor_count": int(sympy.divisor_count(n)),
-    }
-
-
-@app.get("/sympy/solve")
-def sympy_solve(expr: str = Query("x**2 - 5*x + 6")):
-    """Solve a symbolic equation using SymPy."""
-    x = sympy.Symbol("x")
-    try:
-        parsed = sympy.sympify(expr)
-        solutions = sympy.solve(parsed, x)
-        derivative = sympy.diff(parsed, x)
-        integral = sympy.integrate(parsed, x)
-        return {
-            "expression": str(parsed),
-            "solutions": [str(s) for s in solutions],
-            "derivative": str(derivative),
-            "integral": str(integral),
-            "simplified": str(sympy.simplify(parsed)),
-        }
-    except Exception as e:
-        return {"error": str(e), "expression": expr}
-
-
 @app.get("/graph/random")
 def graph_random(
     nodes: int = Query(20, ge=5, le=200),
@@ -416,7 +381,6 @@ def health():
         "dependencies": {
             "numpy": np.__version__,
             "pandas": pd.__version__,
-            "sympy": sympy.__version__,
             "networkx": nx.__version__,
             "Pillow": Image.__version__,
             "matplotlib": matplotlib.__version__,

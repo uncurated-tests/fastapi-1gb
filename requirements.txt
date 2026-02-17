@@ -10,7 +10,6 @@ pyyaml
 jinja2
 sqlalchemy
 lxml
-sympy
 networkx
 requests
 beautifulsoup4
