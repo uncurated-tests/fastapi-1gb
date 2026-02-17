@@ -19,11 +19,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
 
-from scipy import stats, fft
-from scipy.interpolate import interp1d
-from sklearn.linear_model import LinearRegression
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
+import sympy
+import networkx as nx
 
 from jinja2 import Template
 from lxml import etree
@@ -263,6 +260,94 @@ def crypto_password_derive(password: str = Query("mysecretpassword", max_length=
     }
 
 
+@app.get("/sympy/factorize")
+def sympy_factorize(n: int = Query(360, ge=2, le=1_000_000)):
+    """Factorize an integer using SymPy."""
+    factors = sympy.factorint(n)
+    return {
+        "number": n,
+        "factors": {str(k): v for k, v in factors.items()},
+        "is_prime": sympy.isprime(n),
+        "next_prime": int(sympy.nextprime(n)),
+        "totient": int(sympy.totient(n)),
+        "divisor_count": int(sympy.divisor_count(n)),
+    }
+
+
+@app.get("/sympy/solve")
+def sympy_solve(expr: str = Query("x**2 - 5*x + 6")):
+    """Solve a symbolic equation using SymPy."""
+    x = sympy.Symbol("x")
+    try:
+        parsed = sympy.sympify(expr)
+        solutions = sympy.solve(parsed, x)
+        derivative = sympy.diff(parsed, x)
+        integral = sympy.integrate(parsed, x)
+        return {
+            "expression": str(parsed),
+            "solutions": [str(s) for s in solutions],
+            "derivative": str(derivative),
+            "integral": str(integral),
+            "simplified": str(sympy.simplify(parsed)),
+        }
+    except Exception as e:
+        return {"error": str(e), "expression": expr}
+
+
+@app.get("/graph/random")
+def graph_random(
+    nodes: int = Query(20, ge=5, le=200),
+    edge_prob: float = Query(0.3, ge=0.05, le=0.9),
+):
+    """Generate a random graph and compute metrics using NetworkX."""
+    G = nx.erdos_renyi_graph(nodes, edge_prob, seed=42)
+    return {
+        "nodes": G.number_of_nodes(),
+        "edges": G.number_of_edges(),
+        "density": float(nx.density(G)),
+        "is_connected": nx.is_connected(G),
+        "number_of_components": nx.number_connected_components(G),
+        "avg_clustering": float(nx.average_clustering(G)),
+        "avg_degree": float(sum(dict(G.degree()).values()) / G.number_of_nodes()),
+        "degree_histogram": nx.degree_histogram(G),
+    }
+
+
+@app.get("/graph/shortest-path")
+def graph_shortest_path(
+    nodes: int = Query(30, ge=5, le=200),
+    edge_prob: float = Query(0.3, ge=0.05, le=0.9),
+    source: int = Query(0, ge=0),
+    target: int = Query(5, ge=0),
+):
+    """Find shortest path in a random graph."""
+    G = nx.erdos_renyi_graph(nodes, edge_prob, seed=42)
+    for u, v in G.edges():
+        G[u][v]["weight"] = np.random.uniform(0.1, 10)
+
+    source = min(source, nodes - 1)
+    target = min(target, nodes - 1)
+
+    try:
+        path = nx.shortest_path(G, source=source, target=target, weight="weight")
+        length = nx.shortest_path_length(
+            G, source=source, target=target, weight="weight"
+        )
+        return {
+            "source": source,
+            "target": target,
+            "path": path,
+            "path_length": float(length),
+            "hops": len(path) - 1,
+        }
+    except nx.NetworkXNoPath:
+        return {
+            "source": source,
+            "target": target,
+            "error": "No path exists between source and target",
+        }
+
+
 @app.get("/template/render", response_class=HTMLResponse)
 def template_render(
     name: str = Query("World"),
@@ -320,174 +405,19 @@ def xml_generate(elements: int = Query(5, ge=1, le=50)):
     }
 
 
-@app.get("/scipy/distribution")
-def scipy_distribution(
-    dist: str = Query("norm", enum=["norm", "uniform", "expon"]),
-    n: int = Query(1000, ge=10, le=10000),
-):
-    """Generate samples from a distribution and run normality test."""
-    if dist == "norm":
-        samples = stats.norm.rvs(loc=0, scale=1, size=n)
-    elif dist == "uniform":
-        samples = stats.uniform.rvs(loc=0, scale=10, size=n)
-    else:
-        samples = stats.expon.rvs(scale=2, size=n)
-
-    shapiro_stat, shapiro_p = stats.shapiro(samples[: min(n, 5000)])
-    ks_stat, ks_p = stats.kstest(samples, "norm")
-
-    return {
-        "distribution": dist,
-        "n_samples": n,
-        "mean": float(np.mean(samples)),
-        "std": float(np.std(samples)),
-        "skew": float(stats.skew(samples)),
-        "kurtosis": float(stats.kurtosis(samples)),
-        "shapiro_test": {"statistic": float(shapiro_stat), "p_value": float(shapiro_p)},
-        "ks_test": {"statistic": float(ks_stat), "p_value": float(ks_p)},
-    }
-
-
-@app.get("/scipy/fft")
-def scipy_fft_endpoint(
-    n: int = Query(256, ge=16, le=4096),
-    freq: float = Query(10.0, ge=1, le=100),
-):
-    """Generate a signal and compute its FFT."""
-    t = np.linspace(0, 1, n, endpoint=False)
-    sig = np.sin(2 * np.pi * freq * t) + 0.5 * np.sin(2 * np.pi * freq * 2 * t)
-    sig += np.random.randn(n) * 0.3
-
-    fft_vals = fft.fft(sig)
-    freqs = fft.fftfreq(n, d=1.0 / n)
-    magnitudes = np.abs(fft_vals)[: n // 2]
-    freq_axis = freqs[: n // 2]
-
-    peak_idx = np.argmax(magnitudes[1:]) + 1
-    return {
-        "n_samples": n,
-        "input_freq": freq,
-        "detected_peak_freq": float(freq_axis[peak_idx]),
-        "peak_magnitude": float(magnitudes[peak_idx]),
-        "top_5_freqs": [float(f) for f in freq_axis[np.argsort(magnitudes)[-5:][::-1]]],
-        "top_5_magnitudes": [float(m) for m in np.sort(magnitudes)[-5:][::-1]],
-    }
-
-
-@app.get("/scipy/interpolate")
-def scipy_interpolate_endpoint(n: int = Query(10, ge=3, le=50)):
-    """Generate random points and interpolate between them."""
-    x = np.sort(np.random.rand(n)) * 10
-    y = np.sin(x) + np.random.randn(n) * 0.2
-
-    f_linear = interp1d(x, y, kind="linear")
-    f_cubic = interp1d(x, y, kind="cubic")
-
-    x_dense = np.linspace(x[0], x[-1], 100)
-    y_linear = f_linear(x_dense)
-    y_cubic = f_cubic(x_dense)
-
-    return {
-        "n_points": n,
-        "original_x": x.tolist(),
-        "original_y": y.tolist(),
-        "interpolated_points": 100,
-        "linear_range": {"min": float(y_linear.min()), "max": float(y_linear.max())},
-        "cubic_range": {"min": float(y_cubic.min()), "max": float(y_cubic.max())},
-        "max_linear_cubic_diff": float(np.max(np.abs(y_linear - y_cubic))),
-    }
-
-
-@app.get("/sklearn/regression")
-def sklearn_regression(
-    n: int = Query(100, ge=10, le=10000), noise: float = Query(1.0, ge=0)
-):
-    """Fit a linear regression on random data."""
-    X = np.random.rand(n, 1) * 10
-    y = 3.5 * X.flatten() + 7.2 + np.random.randn(n) * noise
-
-    model = LinearRegression()
-    model.fit(X, y)
-
-    y_pred = model.predict(X)
-    r2 = model.score(X, y)
-    residuals = y - y_pred
-
-    return {
-        "n_samples": n,
-        "noise": noise,
-        "coefficient": float(model.coef_[0]),
-        "intercept": float(model.intercept_),
-        "r_squared": float(r2),
-        "residual_mean": float(np.mean(residuals)),
-        "residual_std": float(np.std(residuals)),
-        "true_coefficient": 3.5,
-        "true_intercept": 7.2,
-    }
-
-
-@app.get("/sklearn/cluster")
-def sklearn_cluster(
-    n: int = Query(200, ge=20, le=5000),
-    k: int = Query(3, ge=2, le=10),
-):
-    """Generate random 2D data and cluster it with KMeans."""
-    centers = np.random.rand(k, 2) * 20 - 10
-    X = np.vstack([center + np.random.randn(n // k, 2) * 1.5 for center in centers])
-
-    kmeans = KMeans(n_clusters=k, n_init=10, random_state=42)
-    kmeans.fit(X)
-
-    return {
-        "n_samples": len(X),
-        "k_clusters": k,
-        "inertia": float(kmeans.inertia_),
-        "cluster_centers": kmeans.cluster_centers_.tolist(),
-        "cluster_sizes": [int((kmeans.labels_ == i).sum()) for i in range(k)],
-        "iterations": int(kmeans.n_iter_),
-    }
-
-
-@app.get("/sklearn/pca")
-def sklearn_pca(
-    n: int = Query(100, ge=20, le=5000),
-    dims: int = Query(10, ge=3, le=50),
-    components: int = Query(2, ge=1, le=10),
-):
-    """Run PCA on random high-dimensional data."""
-    X = np.random.rand(n, dims)
-    X[:, 0] += np.random.randn(n) * 5
-    X[:, 1] += X[:, 0] * 0.8
-
-    pca = PCA(n_components=min(components, dims))
-    X_transformed = pca.fit_transform(X)
-
-    return {
-        "n_samples": n,
-        "original_dims": dims,
-        "n_components": pca.n_components_,
-        "explained_variance_ratio": pca.explained_variance_ratio_.tolist(),
-        "cumulative_variance": float(np.sum(pca.explained_variance_ratio_)),
-        "singular_values": pca.singular_values_.tolist(),
-        "transformed_shape": list(X_transformed.shape),
-    }
-
-
 @app.get("/health")
 def health():
     """Health check with dependency versions."""
     import cryptography
     import lxml
-    import scipy
-    import sklearn
 
     return {
         "status": "ok",
         "dependencies": {
             "numpy": np.__version__,
             "pandas": pd.__version__,
-            "scipy": scipy.__version__,
-            "scikit-learn": sklearn.__version__,
+            "sympy": sympy.__version__,
+            "networkx": nx.__version__,
             "Pillow": Image.__version__,
             "matplotlib": matplotlib.__version__,
             "cryptography": cryptography.__version__,
