@@ -18,3 +18,13 @@ aiofiles
 python-jose
 passlib
 bcrypt
+pydantic[email]
+orjson
+ujson
+python-dateutil
+pytz
+markdown
+pygments
+regex
+chardet
+xmltodict
