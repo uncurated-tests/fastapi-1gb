@@ -28,3 +28,4 @@ pygments
 regex
 chardet
 xmltodict
+scipy
