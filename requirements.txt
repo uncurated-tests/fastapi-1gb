@@ -31,3 +31,7 @@ xmltodict
 scipy
 scikit-learn
 sympy
+opencv-python-headless
+shapely
+pyproj
+
