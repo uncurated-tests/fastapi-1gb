@@ -35,4 +35,6 @@ opencv-python-headless
 shapely
 pyproj
 h5py
+polars
+numba
 
