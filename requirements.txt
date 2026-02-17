@@ -37,8 +37,5 @@ pyproj
 h5py
 polars
 numba
-scikit-image
-statsmodels
 xgboost
-pillow-heif
 
