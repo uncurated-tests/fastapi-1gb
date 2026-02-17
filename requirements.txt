@@ -162,4 +162,7 @@ arrow
 ortools
 jax
 jaxlib
+llvmlite
+gdal
+pyogrio
 
