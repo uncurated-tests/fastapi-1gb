@@ -141,3 +141,5 @@ fastparquet
 sqlalchemy
 alembic
 celery
+torch
+torchvision
