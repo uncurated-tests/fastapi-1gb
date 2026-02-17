@@ -144,4 +144,20 @@ pyproj
 tensorflow-cpu
 onnxruntime
 prophet
+Cython
+lz4
+blosc2
+numexpr
+bottleneck
+openpyxl
+xlsxwriter
+paramiko
+fabric
+invoke
+cryptography
+bcrypt
+cffi
+pendulum
+arrow
+ortools
 
