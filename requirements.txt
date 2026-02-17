@@ -38,4 +38,9 @@ h5py
 polars
 numba
 scikit-image
+xgboost
+statsmodels
+lightgbm
+nltk
+spacy
 

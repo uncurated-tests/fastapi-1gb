@@ -583,6 +583,47 @@ def image_edge_detect(
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
+@app.get("/xgboost/classify")
+def xgboost_classify(
+    n: int = Query(500, ge=50, le=10000),
+    n_features: int = Query(10, ge=2, le=50),
+    n_classes: int = Query(3, ge=2, le=5),
+):
+    """Train an XGBoost classifier on random data and return metrics."""
+    import xgboost as xgb
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import accuracy_score, f1_score
+
+    X = np.random.randn(n, n_features)
+    y = np.random.randint(0, n_classes, n)
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+
+    model = xgb.XGBClassifier(
+        n_estimators=50,
+        max_depth=4,
+        learning_rate=0.1,
+        eval_metric="mlogloss",
+        verbosity=0,
+    )
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
+    f1 = f1_score(y_test, y_pred, average="weighted")
+
+    return {
+        "n_samples": n,
+        "n_features": n_features,
+        "n_classes": n_classes,
+        "accuracy": float(accuracy),
+        "f1_weighted": float(f1),
+        "n_estimators": 50,
+    }
+
+
 @app.get("/health")
 def health():
     """Health check with dependency versions."""
@@ -591,6 +632,7 @@ def health():
     import scipy
     import sklearn
     import skimage
+    import xgboost
 
     return {
         "status": "ok",
@@ -600,6 +642,7 @@ def health():
             "scipy": scipy.__version__,
             "scikit-learn": sklearn.__version__,
             "scikit-image": skimage.__version__,
+            "xgboost": xgboost.__version__,
             "sympy": sympy.__version__,
             "networkx": nx.__version__,
             "Pillow": Image.__version__,
