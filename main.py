@@ -61,20 +61,524 @@ def template_render(
     return HTMLResponse(content=html)
 
 
-@app.get("/health")
-def health():
-    """Health check with dependency versions."""
-    import openai
-    import litellm
-    import tiktoken
+@app.get("/healthcheck")
+def healthcheck():
+    """Test each dependency with a basic operation. Returns which worked vs failed."""
+    results = {}
+
+    # --- aiohttp ---
+    try:
+        import aiohttp
+
+        aiohttp.ClientSession  # verify class exists
+        results["aiohttp"] = {"status": "ok", "version": aiohttp.__version__}
+    except Exception as e:
+        results["aiohttp"] = {"status": "error", "error": str(e)}
+
+    # --- apscheduler ---
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+
+        s = BackgroundScheduler()
+        results["apscheduler"] = {
+            "status": "ok",
+            "version": "3.11.0",
+            "detail": "BackgroundScheduler instantiated",
+        }
+    except Exception as e:
+        results["apscheduler"] = {"status": "error", "error": str(e)}
+
+    # --- asyncpg ---
+    try:
+        import asyncpg
+
+        results["asyncpg"] = {"status": "ok", "version": asyncpg.__version__}
+    except Exception as e:
+        results["asyncpg"] = {"status": "error", "error": str(e)}
+
+    # --- boto3 ---
+    try:
+        import boto3
+
+        boto3.Session()
+        results["boto3"] = {"status": "ok", "version": boto3.__version__}
+    except Exception as e:
+        results["boto3"] = {"status": "error", "error": str(e)}
+
+    # --- certifi ---
+    try:
+        import certifi
+
+        ca_path = certifi.where()
+        results["certifi"] = {
+            "status": "ok",
+            "version": certifi.__version__,
+            "ca_bundle": ca_path,
+        }
+    except Exception as e:
+        results["certifi"] = {"status": "error", "error": str(e)}
+
+    # --- cffi ---
+    try:
+        import cffi
+
+        ffi = cffi.FFI()
+        results["cffi"] = {
+            "status": "ok",
+            "version": cffi.__version__,
+            "detail": "FFI instance created",
+        }
+    except Exception as e:
+        results["cffi"] = {"status": "error", "error": str(e)}
+
+    # --- click ---
+    try:
+        import click
+
+        results["click"] = {"status": "ok", "version": click.__version__}
+    except Exception as e:
+        results["click"] = {"status": "error", "error": str(e)}
+
+    # --- croniter ---
+    try:
+        from croniter import croniter
+
+        c = croniter("*/5 * * * *")
+        next_run = c.get_next(float)
+        results["croniter"] = {
+            "status": "ok",
+            "version": "6.0.0",
+            "next_run_ts": next_run,
+        }
+    except Exception as e:
+        results["croniter"] = {"status": "error", "error": str(e)}
+
+    # --- cryptography ---
+    try:
+        from cryptography.fernet import Fernet as F
+
+        key = F.generate_key()
+        f = F(key)
+        ct = f.encrypt(b"healthcheck")
+        pt = f.decrypt(ct)
+        results["cryptography"] = {
+            "status": "ok",
+            "version": "43.0.3",
+            "detail": f"encrypt/decrypt verified: {pt == b'healthcheck'}",
+        }
+    except Exception as e:
+        results["cryptography"] = {"status": "error", "error": str(e)}
+
+    # --- dnspython ---
+    try:
+        import dns.name
+
+        name = dns.name.from_text("example.com")
+        results["dnspython"] = {
+            "status": "ok",
+            "version": "2.7.0",
+            "parsed_name": str(name),
+        }
+    except Exception as e:
+        results["dnspython"] = {"status": "error", "error": str(e)}
+
+    # --- email-validator ---
+    try:
+        from email_validator import validate_email
+
+        info = validate_email("test@example.com", check_deliverability=False)
+        results["email-validator"] = {
+            "status": "ok",
+            "version": "2.2.0",
+            "normalized": info.normalized,
+        }
+    except Exception as e:
+        results["email-validator"] = {"status": "error", "error": str(e)}
+
+    # --- fal-client ---
+    try:
+        import fal_client
+
+        results["fal-client"] = {"status": "ok", "version": "0.10.0"}
+    except Exception as e:
+        results["fal-client"] = {"status": "error", "error": str(e)}
+
+    # --- fastapi ---
+    try:
+        import fastapi as _fa
+
+        results["fastapi"] = {"status": "ok", "version": _fa.__version__}
+    except Exception as e:
+        results["fastapi"] = {"status": "error", "error": str(e)}
+
+    # --- fastapi-sso ---
+    try:
+        from fastapi_sso.sso.google import GoogleSSO
+
+        results["fastapi-sso"] = {
+            "status": "ok",
+            "version": "0.16.0",
+            "detail": "GoogleSSO class imported",
+        }
+    except Exception as e:
+        results["fastapi-sso"] = {"status": "error", "error": str(e)}
+
+    # --- grpcio ---
+    try:
+        import grpc
+
+        results["grpcio"] = {"status": "ok", "version": "1.67.1"}
+    except Exception as e:
+        results["grpcio"] = {"status": "error", "error": str(e)}
+
+    # --- gunicorn ---
+    try:
+        import gunicorn
+
+        results["gunicorn"] = {"status": "ok", "version": gunicorn.__version__}
+    except Exception as e:
+        results["gunicorn"] = {"status": "error", "error": str(e)}
+
+    # --- httpx ---
+    try:
+        import httpx as _hx
+
+        client = _hx.Client()
+        client.close()
+        results["httpx"] = {
+            "status": "ok",
+            "version": _hx.__version__,
+            "detail": "Client created and closed",
+        }
+    except Exception as e:
+        results["httpx"] = {"status": "error", "error": str(e)}
+
+    # --- huggingface-hub ---
+    try:
+        from huggingface_hub import hf_api
+
+        results["huggingface-hub"] = {"status": "ok", "version": "0.33.1"}
+    except Exception as e:
+        results["huggingface-hub"] = {"status": "error", "error": str(e)}
+
+    # --- jinja2 ---
+    try:
+        from jinja2 import Template as J2Template
+
+        rendered = J2Template("Hello {{ name }}").render(name="healthcheck")
+        results["jinja2"] = {"status": "ok", "version": "3.1.6", "rendered": rendered}
+    except Exception as e:
+        results["jinja2"] = {"status": "error", "error": str(e)}
+
+    # --- jsonschema ---
+    try:
+        import jsonschema
+
+        schema = {"type": "object", "properties": {"name": {"type": "string"}}}
+        jsonschema.validate({"name": "test"}, schema)
+        results["jsonschema"] = {
+            "status": "ok",
+            "version": "4.24.0",
+            "detail": "validation passed",
+        }
+    except Exception as e:
+        results["jsonschema"] = {"status": "error", "error": str(e)}
+
+    # --- litellm ---
+    try:
+        import litellm
+
+        results["litellm"] = {"status": "ok", "version": litellm.__version__}
+    except Exception as e:
+        results["litellm"] = {"status": "error", "error": str(e)}
+
+    # --- mcp ---
+    try:
+        import mcp
+
+        results["mcp"] = {"status": "ok", "version": "1.9.3"}
+    except Exception as e:
+        results["mcp"] = {"status": "error", "error": str(e)}
+
+    # --- msgpack ---
+    try:
+        import msgpack
+
+        packed = msgpack.packb({"key": "value"})
+        unpacked = msgpack.unpackb(packed)
+        results["msgpack"] = {
+            "status": "ok",
+            "version": "1.1.2",
+            "detail": f"pack/unpack verified: {unpacked}",
+        }
+    except Exception as e:
+        results["msgpack"] = {"status": "error", "error": str(e)}
+
+    # --- openai ---
+    try:
+        import openai
+
+        results["openai"] = {"status": "ok", "version": openai.__version__}
+    except Exception as e:
+        results["openai"] = {"status": "error", "error": str(e)}
+
+    # --- orjson ---
+    try:
+        import orjson
+
+        data = orjson.dumps({"hello": "world"})
+        parsed = orjson.loads(data)
+        results["orjson"] = {
+            "status": "ok",
+            "version": "3.10.18",
+            "detail": f"serialize/deserialize verified: {parsed}",
+        }
+    except Exception as e:
+        results["orjson"] = {"status": "error", "error": str(e)}
+
+    # --- prisma ---
+    try:
+        import prisma
+
+        results["prisma"] = {"status": "ok", "version": "0.15.0"}
+    except Exception as e:
+        results["prisma"] = {"status": "error", "error": str(e)}
+
+    # --- pydantic ---
+    try:
+        from pydantic import BaseModel
+
+        class _Check(BaseModel):
+            name: str
+            value: int
+
+        obj = _Check(name="test", value=42)
+        results["pydantic"] = {
+            "status": "ok",
+            "version": "2.11.7",
+            "detail": f"model created: {obj.model_dump()}",
+        }
+    except Exception as e:
+        results["pydantic"] = {"status": "error", "error": str(e)}
+
+    # --- pydantic-settings ---
+    try:
+        from pydantic_settings import BaseSettings
+
+        results["pydantic-settings"] = {"status": "ok", "version": "2.10.1"}
+    except Exception as e:
+        results["pydantic-settings"] = {"status": "error", "error": str(e)}
+
+    # --- pygments ---
+    try:
+        from pygments import highlight
+        from pygments.lexers import PythonLexer
+        from pygments.formatters import TerminalFormatter
+
+        code = highlight("print('hello')", PythonLexer(), TerminalFormatter())
+        results["pygments"] = {
+            "status": "ok",
+            "version": "2.19.2",
+            "detail": "syntax highlighting works",
+        }
+    except Exception as e:
+        results["pygments"] = {"status": "error", "error": str(e)}
+
+    # --- pyjwt ---
+    try:
+        import jwt
+
+        token = jwt.encode({"sub": "healthcheck"}, "secret", algorithm="HS256")
+        decoded = jwt.decode(token, "secret", algorithms=["HS256"])
+        results["pyjwt"] = {
+            "status": "ok",
+            "version": "2.10.1",
+            "detail": f"encode/decode verified: {decoded}",
+        }
+    except Exception as e:
+        results["pyjwt"] = {"status": "error", "error": str(e)}
+
+    # --- pynacl ---
+    try:
+        import nacl.utils
+
+        random_bytes = nacl.utils.random(24)
+        results["pynacl"] = {
+            "status": "ok",
+            "version": "1.5.0",
+            "detail": f"generated {len(random_bytes)} random bytes",
+        }
+    except Exception as e:
+        results["pynacl"] = {"status": "error", "error": str(e)}
+
+    # --- python-dateutil ---
+    try:
+        from dateutil import parser as dateparser
+
+        dt = dateparser.parse("2025-01-15T10:30:00Z")
+        results["python-dateutil"] = {
+            "status": "ok",
+            "version": "2.9.0",
+            "parsed": str(dt),
+        }
+    except Exception as e:
+        results["python-dateutil"] = {"status": "error", "error": str(e)}
+
+    # --- pytz ---
+    try:
+        import pytz
+
+        tz = pytz.timezone("US/Eastern")
+        results["pytz"] = {"status": "ok", "version": "2025.2", "timezone": str(tz)}
+    except Exception as e:
+        results["pytz"] = {"status": "error", "error": str(e)}
+
+    # --- pyyaml ---
+    try:
+        import yaml
+
+        data = yaml.safe_load("key: value\nlist:\n  - 1\n  - 2")
+        results["pyyaml"] = {"status": "ok", "version": "6.0.2", "parsed": data}
+    except Exception as e:
+        results["pyyaml"] = {"status": "error", "error": str(e)}
+
+    # --- redis ---
+    try:
+        import redis
+
+        results["redis"] = {"status": "ok", "version": redis.__version__}
+    except Exception as e:
+        results["redis"] = {"status": "error", "error": str(e)}
+
+    # --- regex ---
+    try:
+        import regex
+
+        m = regex.search(r"\p{L}+", "Hello123")
+        results["regex"] = {
+            "status": "ok",
+            "version": regex.__version__,
+            "match": m.group() if m else None,
+        }
+    except Exception as e:
+        results["regex"] = {"status": "error", "error": str(e)}
+
+    # --- replicate ---
+    try:
+        import replicate
+
+        results["replicate"] = {"status": "ok", "version": "1.0.7"}
+    except Exception as e:
+        results["replicate"] = {"status": "error", "error": str(e)}
+
+    # --- requests ---
+    try:
+        import requests as _req
+
+        results["requests"] = {"status": "ok", "version": _req.__version__}
+    except Exception as e:
+        results["requests"] = {"status": "error", "error": str(e)}
+
+    # --- rich ---
+    try:
+        from rich.console import Console
+
+        c = Console(file=None, force_terminal=False)
+        results["rich"] = {
+            "status": "ok",
+            "version": "13.7.1",
+            "detail": "Console created",
+        }
+    except Exception as e:
+        results["rich"] = {"status": "error", "error": str(e)}
+
+    # --- stripe ---
+    try:
+        import stripe
+
+        results["stripe"] = {"status": "ok", "version": stripe.VERSION}
+    except Exception as e:
+        results["stripe"] = {"status": "error", "error": str(e)}
+
+    # --- tiktoken ---
+    try:
+        import tiktoken
+
+        enc = tiktoken.get_encoding("cl100k_base")
+        tokens = enc.encode("Hello, world!")
+        results["tiktoken"] = {
+            "status": "ok",
+            "version": tiktoken.__version__,
+            "token_count": len(tokens),
+        }
+    except Exception as e:
+        results["tiktoken"] = {"status": "error", "error": str(e)}
+
+    # --- tokenizers ---
+    try:
+        from tokenizers import Tokenizer, models
+
+        t = Tokenizer(models.BPE())
+        results["tokenizers"] = {
+            "status": "ok",
+            "version": "0.21.2",
+            "detail": "BPE tokenizer created",
+        }
+    except Exception as e:
+        results["tokenizers"] = {"status": "error", "error": str(e)}
+
+    # --- tomlkit ---
+    try:
+        import tomlkit
+
+        doc = tomlkit.parse("[section]\nkey = 'value'")
+        results["tomlkit"] = {"status": "ok", "version": "0.13.3", "parsed": dict(doc)}
+    except Exception as e:
+        results["tomlkit"] = {"status": "error", "error": str(e)}
+
+    # --- upstash-redis ---
+    try:
+        from upstash_redis import Redis as UpstashRedis
+
+        results["upstash-redis"] = {"status": "ok", "version": "1.4.0"}
+    except Exception as e:
+        results["upstash-redis"] = {"status": "error", "error": str(e)}
+
+    # --- websockets ---
+    try:
+        import websockets
+
+        results["websockets"] = {"status": "ok", "version": websockets.__version__}
+    except Exception as e:
+        results["websockets"] = {"status": "error", "error": str(e)}
+
+    # --- fast-litellm ---
+    try:
+        import fast_litellm
+
+        results["fast-litellm"] = {"status": "ok"}
+    except Exception as e:
+        results["fast-litellm"] = {"status": "error", "error": str(e)}
+
+    # --- sse-starlette ---
+    try:
+        from sse_starlette.sse import EventSourceResponse
+
+        results["sse-starlette"] = {"status": "ok", "version": "2.3.6"}
+    except Exception as e:
+        results["sse-starlette"] = {"status": "error", "error": str(e)}
+
+    # Summary
+    ok_count = sum(1 for r in results.values() if r["status"] == "ok")
+    error_count = sum(1 for r in results.values() if r["status"] == "error")
+    failed = [name for name, r in results.items() if r["status"] == "error"]
 
     return {
-        "status": "ok",
-        "dependencies": {
-            "openai": openai.__version__,
-            "litellm": litellm.__version__,
-            "tiktoken": tiktoken.__version__,
-            "cryptography": "43.0.3",
-            "fastapi": "0.115.14",
+        "summary": {
+            "total": len(results),
+            "ok": ok_count,
+            "errors": error_count,
+            "failed_packages": failed,
         },
+        "results": results,
     }
