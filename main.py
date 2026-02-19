@@ -115,46 +115,6 @@ def healthcheck():
     except Exception as e:
         results["numpy"] = {"status": "error", "error": str(e)}
 
-    # --- pandas ---
-    try:
-        import pandas as pd
-
-        results["pandas"] = {"status": "ok", "version": pd.__version__}
-    except Exception as e:
-        results["pandas"] = {"status": "error", "error": str(e)}
-
-    # --- scipy ---
-    try:
-        import scipy
-
-        results["scipy"] = {"status": "ok", "version": scipy.__version__}
-    except Exception as e:
-        results["scipy"] = {"status": "error", "error": str(e)}
-
-    # --- scikit-learn ---
-    try:
-        import sklearn
-
-        results["scikit-learn"] = {"status": "ok", "version": sklearn.__version__}
-    except Exception as e:
-        results["scikit-learn"] = {"status": "error", "error": str(e)}
-
-    # --- matplotlib ---
-    try:
-        import matplotlib
-
-        results["matplotlib"] = {"status": "ok", "version": matplotlib.__version__}
-    except Exception as e:
-        results["matplotlib"] = {"status": "error", "error": str(e)}
-
-    # --- transformers ---
-    try:
-        import transformers
-
-        results["transformers"] = {"status": "ok", "version": transformers.__version__}
-    except Exception as e:
-        results["transformers"] = {"status": "error", "error": str(e)}
-
     # --- onnxruntime ---
     try:
         import onnxruntime as ort

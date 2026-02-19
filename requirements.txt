@@ -12,13 +12,8 @@ cryptography==43.0.3
 
 # --- api/analytics.py deps ---
 numpy
-pandas
-scipy
-scikit-learn
-matplotlib
 
 # --- api/llm.py deps (BERT QA via ONNX Runtime, CPU only) ---
-transformers
-optimum[onnxruntime]
+onnxruntime
 tokenizers
 huggingface-hub

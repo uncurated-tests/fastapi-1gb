@@ -1,37 +1,18 @@
 """
-Data analytics API — a second Vercel serverless function.
+Data analytics API -- lightweight, numpy-only (no pandas/scipy/sklearn/matplotlib).
 
-Provides endpoints for data analysis, statistical testing,
-machine learning predictions, and report generation using
-numpy, pandas, scipy, and scikit-learn.
+Provides endpoints for sales analysis, forecasting, A/B testing,
+customer segmentation, anomaly detection, and correlation matrices.
 """
 
-import io
-import time
+from __future__ import annotations
+
+import math
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, Query, Body
-from fastapi.responses import Response
-
 import numpy as np
-import pandas as pd
-from scipy import stats
-from scipy.interpolate import interp1d
-from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import (
-    accuracy_score,
-    mean_squared_error,
-    r2_score,
-    silhouette_score,
-)
-import matplotlib
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+from fastapi import FastAPI, Query
 
 app = FastAPI(title="Analytics API", version="1.0.0")
 
@@ -41,29 +22,84 @@ app = FastAPI(title="Analytics API", version="1.0.0")
 # ---------------------------------------------------------------------------
 
 
-def _generate_sales_data(days: int, seed: int = 42) -> pd.DataFrame:
-    """Generate realistic-looking daily sales data."""
+def _generate_sales_data(days: int, seed: int = 42) -> dict:
+    """Generate realistic-looking daily sales data as plain numpy arrays + lists."""
     rng = np.random.default_rng(seed)
-    dates = pd.date_range(end=datetime.utcnow().date(), periods=days, freq="D")
+    end = datetime.utcnow().date()
+    dates = [end - timedelta(days=days - 1 - i) for i in range(days)]
+
     trend = np.linspace(100, 150, days)
     seasonality = 20 * np.sin(2 * np.pi * np.arange(days) / 7)
     noise = rng.normal(0, 10, days)
-    revenue = trend + seasonality + noise
-    revenue = np.clip(revenue, 10, None)
+    revenue = np.clip(trend + seasonality + noise, 10, None).round(2)
 
-    categories = rng.choice(["Electronics", "Clothing", "Food", "Home"], days)
-    regions = rng.choice(["North", "South", "East", "West"], days)
+    categories = rng.choice(["Electronics", "Clothing", "Food", "Home"], days).tolist()
+    regions = rng.choice(["North", "South", "East", "West"], days).tolist()
     units = rng.integers(5, 200, days)
 
-    return pd.DataFrame(
-        {
-            "date": dates,
-            "revenue": np.round(revenue, 2),
-            "units_sold": units,
-            "category": categories,
-            "region": regions,
-        }
-    )
+    return {
+        "dates": dates,
+        "revenue": revenue,
+        "units_sold": units,
+        "categories": categories,
+        "regions": regions,
+    }
+
+
+def _rolling_mean(arr: np.ndarray, window: int) -> np.ndarray:
+    """Simple rolling mean using cumsum."""
+    cs = np.cumsum(arr)
+    cs = np.insert(cs, 0, 0.0)
+    out = (cs[window:] - cs[:-window]) / window
+    return out
+
+
+def _linreg(x: np.ndarray, y: np.ndarray):
+    """Ordinary least-squares fit. Returns (slope, intercept)."""
+    n = len(x)
+    sx = x.sum()
+    sy = y.sum()
+    sxy = (x * y).sum()
+    sx2 = (x * x).sum()
+    denom = n * sx2 - sx * sx
+    slope = (n * sxy - sx * sy) / denom
+    intercept = (sy - slope * sx) / n
+    return float(slope), float(intercept)
+
+
+def _r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    ss_res = ((y_true - y_pred) ** 2).sum()
+    ss_tot = ((y_true - y_true.mean()) ** 2).sum()
+    return float(1 - ss_res / ss_tot) if ss_tot > 0 else 0.0
+
+
+def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    return float(np.sqrt(((y_true - y_pred) ** 2).mean()))
+
+
+def _norm_cdf(z: float) -> float:
+    """Approximate standard normal CDF (Abramowitz & Stegun)."""
+    return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+
+
+# ---------------------------------------------------------------------------
+# Groupby helper (replaces pandas groupby)
+# ---------------------------------------------------------------------------
+
+
+def _group_agg(keys: list, values: np.ndarray, agg: str = "sum") -> dict:
+    """Group values by string keys and aggregate."""
+    buckets: dict[str, list[float]] = {}
+    for k, v in zip(keys, values):
+        buckets.setdefault(k, []).append(float(v))
+    result = {}
+    for k, vals in sorted(buckets.items()):
+        arr = np.array(vals)
+        if agg == "sum":
+            result[k] = round(float(arr.sum()), 2)
+        elif agg == "mean":
+            result[k] = round(float(arr.mean()), 2)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -79,10 +115,8 @@ def analytics_root():
             "/analytics/sales-summary",
             "/analytics/forecast",
             "/analytics/ab-test",
-            "/analytics/segmentation",
             "/analytics/anomaly-detection",
             "/analytics/correlation-matrix",
-            "/analytics/chart/sales-trend",
         ],
     }
 
@@ -90,40 +124,47 @@ def analytics_root():
 @app.get("/analytics/sales-summary")
 def sales_summary(days: int = Query(90, ge=7, le=730)):
     """Aggregate sales data and return KPIs."""
-    df = _generate_sales_data(days)
+    data = _generate_sales_data(days)
+    rev = data["revenue"]
 
-    total_revenue = float(df["revenue"].sum())
-    avg_daily_revenue = float(df["revenue"].mean())
-    best_day = df.loc[df["revenue"].idxmax()]
-    worst_day = df.loc[df["revenue"].idxmin()]
+    total_revenue = round(float(rev.sum()), 2)
+    avg_daily = round(float(rev.mean()), 2)
+    std_daily = round(float(rev.std()), 2)
 
-    by_category = (
-        df.groupby("category")
-        .agg(total_revenue=("revenue", "sum"), avg_units=("units_sold", "mean"))
-        .round(2)
-        .to_dict(orient="index")
-    )
+    best_idx = int(rev.argmax())
+    worst_idx = int(rev.argmin())
 
-    by_region = df.groupby("region")["revenue"].sum().round(2).to_dict()
+    by_category = {}
+    for cat in sorted(set(data["categories"])):
+        mask = [c == cat for c in data["categories"]]
+        cat_rev = rev[mask]
+        cat_units = data["units_sold"][mask]
+        by_category[cat] = {
+            "total_revenue": round(float(cat_rev.sum()), 2),
+            "avg_units": round(float(cat_units.mean()), 2),
+        }
 
-    rolling_7d = df.set_index("date")["revenue"].rolling(7).mean().dropna()
+    by_region = _group_agg(data["regions"], rev, "sum")
+
+    rolling = _rolling_mean(rev, 7)
+    rolling_last5 = [round(float(v), 2) for v in rolling[-5:]]
 
     return {
         "period_days": days,
-        "total_revenue": round(total_revenue, 2),
-        "avg_daily_revenue": round(avg_daily_revenue, 2),
-        "std_daily_revenue": round(float(df["revenue"].std()), 2),
+        "total_revenue": total_revenue,
+        "avg_daily_revenue": avg_daily,
+        "std_daily_revenue": std_daily,
         "best_day": {
-            "date": str(best_day["date"].date()),
-            "revenue": float(best_day["revenue"]),
+            "date": str(data["dates"][best_idx]),
+            "revenue": float(rev[best_idx]),
         },
         "worst_day": {
-            "date": str(worst_day["date"].date()),
-            "revenue": float(worst_day["revenue"]),
+            "date": str(data["dates"][worst_idx]),
+            "revenue": float(rev[worst_idx]),
         },
         "by_category": by_category,
         "by_region": by_region,
-        "rolling_7d_last5": rolling_7d.tail(5).round(2).tolist(),
+        "rolling_7d_last5": rolling_last5,
     }
 
 
@@ -133,36 +174,31 @@ def forecast(
     days_ahead: int = Query(14, ge=1, le=60),
 ):
     """Fit a linear regression on historical sales and forecast future revenue."""
-    df = _generate_sales_data(days_history)
+    data = _generate_sales_data(days_history)
+    rev = data["revenue"]
 
-    X = np.arange(len(df)).reshape(-1, 1)
-    y = df["revenue"].values
+    x = np.arange(len(rev), dtype=np.float64)
+    slope, intercept = _linreg(x, rev)
 
-    model = LinearRegression()
-    model.fit(X, y)
+    y_pred = slope * x + intercept
+    r2_val = _r2(rev, y_pred)
+    rmse_val = _rmse(rev, y_pred)
 
-    y_pred_hist = model.predict(X)
-    r2 = r2_score(y, y_pred_hist)
-    rmse = float(np.sqrt(mean_squared_error(y, y_pred_hist)))
-
-    X_future = np.arange(len(df), len(df) + days_ahead).reshape(-1, 1)
-    y_future = model.predict(X_future)
-
-    future_dates = pd.date_range(
-        start=df["date"].iloc[-1] + timedelta(days=1), periods=days_ahead, freq="D"
-    )
+    last_date = data["dates"][-1]
+    forecast_list = []
+    for i in range(1, days_ahead + 1):
+        d = last_date + timedelta(days=i)
+        v = slope * (len(rev) - 1 + i) + intercept
+        forecast_list.append({"date": str(d), "predicted_revenue": round(v, 2)})
 
     return {
-        "model": "LinearRegression",
+        "model": "LinearRegression (numpy)",
         "history_days": days_history,
-        "r_squared": round(float(r2), 4),
-        "rmse": round(rmse, 2),
-        "coefficient": round(float(model.coef_[0]), 4),
-        "intercept": round(float(model.intercept_), 2),
-        "forecast": [
-            {"date": str(d.date()), "predicted_revenue": round(float(v), 2)}
-            for d, v in zip(future_dates, y_future)
-        ],
+        "r_squared": round(r2_val, 4),
+        "rmse": round(rmse_val, 2),
+        "coefficient": round(slope, 4),
+        "intercept": round(intercept, 2),
+        "forecast": forecast_list,
     }
 
 
@@ -173,7 +209,7 @@ def ab_test(
     conv_rate_a: float = Query(0.10, ge=0.001, le=0.999),
     conv_rate_b: float = Query(0.12, ge=0.001, le=0.999),
 ):
-    """Simulate an A/B test and run statistical significance analysis."""
+    """Simulate an A/B test and run a two-proportion z-test."""
     rng = np.random.default_rng(42)
     a = rng.binomial(1, conv_rate_a, n_a)
     b = rng.binomial(1, conv_rate_b, n_b)
@@ -181,14 +217,10 @@ def ab_test(
     obs_rate_a = float(a.mean())
     obs_rate_b = float(b.mean())
 
-    # Two-proportion z-test
     p_pool = (a.sum() + b.sum()) / (n_a + n_b)
-    se = np.sqrt(p_pool * (1 - p_pool) * (1 / n_a + 1 / n_b))
-    z_stat = (obs_rate_b - obs_rate_a) / se if se > 0 else 0.0
-    p_value = float(2 * (1 - stats.norm.cdf(abs(z_stat))))
-
-    # Mann-Whitney U as a non-parametric alternative
-    u_stat, u_pvalue = stats.mannwhitneyu(a, b, alternative="two-sided")
+    se = math.sqrt(p_pool * (1 - p_pool) * (1 / n_a + 1 / n_b)) if p_pool > 0 else 1e-9
+    z_stat = (obs_rate_b - obs_rate_a) / se
+    p_value = 2 * (1 - _norm_cdf(abs(z_stat)))
 
     lift = ((obs_rate_b - obs_rate_a) / obs_rate_a * 100) if obs_rate_a > 0 else None
 
@@ -204,67 +236,12 @@ def ab_test(
             "rate": round(obs_rate_b, 4),
         },
         "z_test": {
-            "z_statistic": round(float(z_stat), 4),
+            "z_statistic": round(z_stat, 4),
             "p_value": round(p_value, 6),
-        },
-        "mann_whitney": {
-            "u_statistic": float(u_stat),
-            "p_value": round(float(u_pvalue), 6),
         },
         "lift_pct": round(lift, 2) if lift is not None else None,
         "significant_at_005": p_value < 0.05,
         "significant_at_001": p_value < 0.01,
-    }
-
-
-@app.get("/analytics/segmentation")
-def customer_segmentation(
-    n_customers: int = Query(500, ge=50, le=10000),
-    n_segments: int = Query(4, ge=2, le=10),
-):
-    """Cluster customers using KMeans on synthetic RFM data."""
-    rng = np.random.default_rng(42)
-
-    recency = rng.exponential(30, n_customers)
-    frequency = rng.poisson(5, n_customers) + 1
-    monetary = rng.lognormal(4, 1, n_customers)
-
-    X = np.column_stack([recency, frequency, monetary])
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    kmeans = KMeans(n_clusters=n_segments, n_init=10, random_state=42)
-    labels = kmeans.fit_predict(X_scaled)
-
-    sil_score = float(silhouette_score(X_scaled, labels))
-
-    df = pd.DataFrame(
-        {
-            "recency": recency,
-            "frequency": frequency,
-            "monetary": monetary,
-            "segment": labels,
-        }
-    )
-    segment_profiles = (
-        df.groupby("segment")
-        .agg(
-            count=("recency", "size"),
-            avg_recency=("recency", "mean"),
-            avg_frequency=("frequency", "mean"),
-            avg_monetary=("monetary", "mean"),
-        )
-        .round(2)
-        .to_dict(orient="index")
-    )
-
-    return {
-        "n_customers": n_customers,
-        "n_segments": n_segments,
-        "silhouette_score": round(sil_score, 4),
-        "inertia": round(float(kmeans.inertia_), 2),
-        "iterations": int(kmeans.n_iter_),
-        "segment_profiles": segment_profiles,
     }
 
 
@@ -274,103 +251,59 @@ def anomaly_detection(
     threshold: float = Query(2.0, ge=1.0, le=4.0),
 ):
     """Detect anomalous days in sales data using z-score method."""
-    df = _generate_sales_data(days)
+    data = _generate_sales_data(days)
+    rev = data["revenue"]
 
-    mean_rev = df["revenue"].mean()
-    std_rev = df["revenue"].std()
-    df["z_score"] = (df["revenue"] - mean_rev) / std_rev
-    df["is_anomaly"] = df["z_score"].abs() > threshold
+    mean_rev = float(rev.mean())
+    std_rev = float(rev.std())
+    z_scores = (rev - mean_rev) / std_rev if std_rev > 0 else np.zeros_like(rev)
 
-    anomalies = df[df["is_anomaly"]][["date", "revenue", "z_score"]].copy()
-    anomalies["date"] = anomalies["date"].dt.strftime("%Y-%m-%d")
+    anomalies = []
+    for i in range(len(rev)):
+        if abs(z_scores[i]) > threshold:
+            anomalies.append(
+                {
+                    "date": str(data["dates"][i]),
+                    "revenue": round(float(rev[i]), 2),
+                    "z_score": round(float(z_scores[i]), 3),
+                }
+            )
 
     return {
         "period_days": days,
         "threshold_sigma": threshold,
-        "mean_revenue": round(float(mean_rev), 2),
-        "std_revenue": round(float(std_rev), 2),
+        "mean_revenue": round(mean_rev, 2),
+        "std_revenue": round(std_rev, 2),
         "total_anomalies": len(anomalies),
-        "anomaly_rate_pct": round(len(anomalies) / len(df) * 100, 2),
-        "anomalies": anomalies.round(3).to_dict(orient="records"),
+        "anomaly_rate_pct": round(len(anomalies) / days * 100, 2),
+        "anomalies": anomalies,
     }
 
 
 @app.get("/analytics/correlation-matrix")
 def correlation_matrix(days: int = Query(90, ge=14, le=365)):
     """Compute the correlation matrix of sales metrics."""
-    df = _generate_sales_data(days)
-    df["day_of_week"] = df["date"].dt.dayofweek
-    df["is_weekend"] = df["day_of_week"].isin([5, 6]).astype(int)
+    data = _generate_sales_data(days)
 
-    numeric = df[["revenue", "units_sold", "day_of_week", "is_weekend"]]
-    corr = numeric.corr().round(4)
+    day_of_week = np.array([d.weekday() for d in data["dates"]], dtype=np.float64)
+    is_weekend = (day_of_week >= 5).astype(np.float64)
+
+    cols = {
+        "revenue": data["revenue"].astype(np.float64),
+        "units_sold": data["units_sold"].astype(np.float64),
+        "day_of_week": day_of_week,
+        "is_weekend": is_weekend,
+    }
+    names = list(cols.keys())
+    matrix = np.column_stack([cols[n] for n in names])
+    corr = np.corrcoef(matrix, rowvar=False)
+
+    corr_dict = {}
+    for i, ni in enumerate(names):
+        corr_dict[ni] = {nj: round(float(corr[i, j]), 4) for j, nj in enumerate(names)}
 
     return {
         "period_days": days,
-        "columns": list(corr.columns),
-        "correlation_matrix": corr.to_dict(),
+        "columns": names,
+        "correlation_matrix": corr_dict,
     }
-
-
-@app.get("/analytics/chart/sales-trend")
-def sales_trend_chart(
-    days: int = Query(60, ge=7, le=365),
-    show_forecast: bool = Query(True),
-    forecast_days: int = Query(14, ge=1, le=60),
-):
-    """Generate a sales trend chart with optional forecast as PNG."""
-    df = _generate_sales_data(days)
-
-    fig, ax = plt.subplots(figsize=(12, 5))
-
-    ax.plot(
-        df["date"],
-        df["revenue"],
-        color="#2196F3",
-        linewidth=1,
-        alpha=0.6,
-        label="Daily Revenue",
-    )
-
-    rolling = df.set_index("date")["revenue"].rolling(7).mean()
-    ax.plot(
-        rolling.index,
-        rolling.values,
-        color="#1565C0",
-        linewidth=2,
-        label="7-day Moving Avg",
-    )
-
-    if show_forecast:
-        X = np.arange(len(df)).reshape(-1, 1)
-        model = LinearRegression().fit(X, df["revenue"].values)
-
-        X_future = np.arange(len(df), len(df) + forecast_days).reshape(-1, 1)
-        y_future = model.predict(X_future)
-        future_dates = pd.date_range(
-            start=df["date"].iloc[-1] + timedelta(days=1),
-            periods=forecast_days,
-            freq="D",
-        )
-        ax.plot(
-            future_dates,
-            y_future,
-            color="#F44336",
-            linewidth=2,
-            linestyle="--",
-            label="Forecast",
-        )
-
-    ax.set_title("Sales Revenue Trend", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Revenue ($)")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    fig.autofmt_xdate()
-    fig.tight_layout()
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=120)
-    plt.close(fig)
-    buf.seek(0)
-    return Response(content=buf.getvalue(), media_type="image/png")
