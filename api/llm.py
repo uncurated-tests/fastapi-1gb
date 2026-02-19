@@ -17,7 +17,12 @@ Usage:
 from __future__ import annotations
 
 import math
+import os
 import time
+
+# Use /tmp for caches in serverless environments (Vercel, Lambda, etc.)
+os.environ.setdefault("HF_HOME", "/tmp/hf_home")
+os.environ.setdefault("HUGGINGFACE_HUB_CACHE", "/tmp/hf_home/hub")
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
