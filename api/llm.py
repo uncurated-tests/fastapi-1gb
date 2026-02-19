@@ -1,9 +1,9 @@
 """
-Minimal LLM endpoint that serves a small BERT-based question-answering model
+Minimal LLM endpoint that serves a DistilBERT question-answering model
 using ONNX Runtime + tokenizers directly (no transformers/optimum/PyTorch).
 
-Model: deepset/minilm-uncased-squad2  (~80 MB ONNX)
-  - A distilled MiniLM fine-tuned on SQuAD 2.0 for extractive QA.
+Model: Xenova/distilbert-base-uncased-distilled-squad_onnx-quantized  (~67 MB)
+  - Pre-exported ONNX quantized DistilBERT fine-tuned on SQuAD.
   - You provide a context paragraph and a question; the model extracts the answer.
 
 Usage:
@@ -29,7 +29,8 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="LLM Question Answering API", version="1.0.0")
 
-MODEL_REPO = "deepset/minilm-uncased-squad2"
+MODEL_REPO = "Xenova/distilbert-base-uncased-distilled-squad_onnx-quantized"
+MODEL_DISPLAY = "distilbert-base-uncased-distilled-squad (ONNX quantized)"
 
 # ---------------------------------------------------------------------------
 # Lazy-loaded model (singleton -- only downloaded/loaded once per cold start)
@@ -50,7 +51,7 @@ def _load_model():
 
     model_path = hf_hub_download(
         repo_id=MODEL_REPO,
-        filename="onnx/model.onnx",
+        filename="model.onnx",
     )
 
     _session = ort.InferenceSession(
@@ -81,25 +82,30 @@ def _run_qa(question: str, context: str) -> dict:
     encoding = tokenizer.encode(question, context)
     input_ids = encoding.ids
     attention_mask = encoding.attention_mask
-    token_type_ids = encoding.type_ids
 
     import numpy as np
 
+    # DistilBERT only needs input_ids + attention_mask (no token_type_ids)
     feeds = {
         "input_ids": np.array([input_ids], dtype=np.int64),
         "attention_mask": np.array([attention_mask], dtype=np.int64),
-        "token_type_ids": np.array([token_type_ids], dtype=np.int64),
     }
 
-    start_logits, end_logits = session.run(None, feeds)
-    start_logits = start_logits[0].tolist()
-    end_logits = end_logits[0].tolist()
+    outputs = session.run(None, feeds)
+    start_logits = outputs[0][0].tolist()
+    end_logits = outputs[1][0].tolist()
 
-    # Mask out question tokens (type_id == 0) so the answer comes from context
-    for i, tid in enumerate(token_type_ids):
-        if tid == 0:
-            start_logits[i] = -1e9
-            end_logits[i] = -1e9
+    # Find the [SEP] token to separate question from context.
+    # Mask out question tokens so the answer comes only from context.
+    sep_idx = 0
+    for i, tid in enumerate(input_ids):
+        if tid == 102:  # [SEP] token id for BERT/DistilBERT
+            sep_idx = i
+            break
+
+    for i in range(sep_idx + 1):
+        start_logits[i] = -1e9
+        end_logits[i] = -1e9
 
     start_probs = _softmax(start_logits)
     end_probs = _softmax(end_logits)
@@ -158,7 +164,7 @@ class AskResponse(BaseModel):
 def llm_root():
     return {
         "service": "LLM Question Answering",
-        "model": MODEL_REPO,
+        "model": MODEL_DISPLAY,
         "endpoints": {
             "POST /llm/ask": "Answer a question given a context paragraph",
             "GET  /llm/health": "Check if the model is loaded and ready",
@@ -172,7 +178,7 @@ def llm_root():
 
 @app.post("/llm/ask", response_model=AskResponse)
 def ask(body: AskRequest):
-    """Extract an answer from the context using the BERT QA model."""
+    """Extract an answer from the context using the DistilBERT QA model."""
     try:
         t0 = time.perf_counter()
         result = _run_qa(body.question, body.context)
@@ -185,7 +191,7 @@ def ask(body: AskRequest):
         score=round(result["score"], 4),
         start=result["start"],
         end=result["end"],
-        model=MODEL_REPO,
+        model=MODEL_DISPLAY,
         inference_ms=round(elapsed_ms, 2),
     )
 
@@ -195,6 +201,6 @@ def health():
     """Report whether the model is loaded."""
     return {
         "status": "ready" if _session is not None else "cold",
-        "model": MODEL_REPO,
+        "model": MODEL_DISPLAY,
         "runtime": "onnxruntime (CPU)",
     }
